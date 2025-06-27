@@ -1,0 +1,161 @@
+use crate::color::{Color, write_color};
+use crate::hittable::Hittable;
+use crate::interval::Interval;
+use crate::ray::Ray;
+use crate::rtweekend::{INFINITY, random_double};
+use crate::vec3::{Point3, Vec3, unit_vector};
+use std::io::{self, Write};
+
+#[derive(Clone)]
+/// 相机类，负责生成射线并渲染场景
+pub struct Camera {
+    // 相机参数（公开）
+    pub aspect_ratio: f64,
+    pub image_width: i32,
+    pub samples_per_pixel: i32, // count of random samples for each pixel
+    pub max_depth: i32,         // Maximum number of ray bounces into scene
+
+    // 私有成员
+    image_height: i32,
+    pixel_samples_scale: f64, // 像素采样的缩放因子
+    center: Point3,
+    pixel00_loc: Point3,
+    pixel_delta_u: Vec3,
+    pixel_delta_v: Vec3,
+}
+
+impl Camera {
+    /// 创建新相机
+    pub fn new() -> Self {
+        Self {
+            aspect_ratio: 1.0,
+            image_width: 100,
+            samples_per_pixel: 10,
+            max_depth: 10,
+            image_height: 0,
+            pixel_samples_scale: 0.0,
+            center: Point3::default(),
+            pixel00_loc: Point3::default(),
+            pixel_delta_u: Vec3::default(),
+            pixel_delta_v: Vec3::default(),
+        }
+    }
+
+    /// 渲染给定场景
+    pub fn render(&self, world: &impl Hittable) {
+        let mut camera = self.clone();
+        camera.initialize();
+
+        println!("P3\n{} {}\n255", camera.image_width, camera.image_height);
+
+        // 逐像素渲染
+        for j in 0..camera.image_height {
+            // 显示进度
+            eprint!("\rScanlines remaining: {}", camera.image_height - j);
+            io::stderr().flush().unwrap();
+
+            for i in 0..camera.image_width {
+                let mut pixel_color = Color::default();
+
+                // 对每个像素多次采样
+                for _ in 0..camera.samples_per_pixel {
+                    let r = camera.get_ray(i, j);
+                    // pixel_color += self.ray_color(&r, world);
+                    pixel_color += self.ray_color(&r, self.max_depth, world);
+                }
+
+                write_color(
+                    &mut io::stdout(),
+                    &(camera.pixel_samples_scale * pixel_color),
+                );
+            }
+        }
+
+        eprint!("\rDone.                 \n");
+        io::stderr().flush().unwrap();
+    }
+
+    /// 初始化相机内部参数
+    fn initialize(&mut self) {
+        // 计算图像高度
+        self.image_height = (self.image_width as f64 / self.aspect_ratio) as i32;
+        self.image_height = if self.image_height < 1 {
+            1
+        } else {
+            self.image_height
+        };
+
+        self.pixel_samples_scale = 1.0 / (self.samples_per_pixel as f64);
+
+        // 设置相机中心
+        self.center = Point3::default(); // (0,0,0)
+
+        // 计算视口尺寸
+        let focal_length = 1.0;
+        let viewport_height = 2.0;
+        let viewport_width = viewport_height * (self.image_width as f64 / self.image_height as f64);
+
+        // 计算视口边缘向量
+        let viewport_u = Vec3::new(viewport_width, 0.0, 0.0);
+        let viewport_v = Vec3::new(0.0, -viewport_height, 0.0);
+
+        // 计算像素间的增量向量
+        self.pixel_delta_u = viewport_u / (self.image_width as f64);
+        self.pixel_delta_v = viewport_v / (self.image_height as f64);
+
+        // 计算视口左上角位置
+        let viewport_upper_left =
+            self.center - Vec3::new(0.0, 0.0, focal_length) - viewport_u / 2.0 - viewport_v / 2.0;
+        self.pixel00_loc = viewport_upper_left + 0.5 * (self.pixel_delta_u + self.pixel_delta_v);
+    }
+
+    fn get_ray(&self, i: i32, j: i32) -> Ray {
+        // 在像素区域内随机采样
+        let offset = self.sample_square();
+        let pixel_sample = self.pixel00_loc
+            + ((i as f64 + offset.x()) * self.pixel_delta_u)
+            + ((j as f64 + offset.y()) * self.pixel_delta_v);
+
+        // 构建射线
+        let ray_origin = self.center;
+        let ray_direction = pixel_sample - ray_origin;
+
+        Ray::with_origin_dir(ray_origin, ray_direction)
+    }
+
+    fn sample_square(&self) -> Vec3 {
+        // Returns the vector to a random point in the [-.5,-.5]-[+.5,+.5] unit square.
+        Vec3::new(random_double() - 0.5, random_double() - 0.5, 0.0)
+    }
+
+    /// 计算射线与场景交互后的颜色
+    fn ray_color(&self, r: &Ray, depth: i32, world: &impl Hittable) -> Color {
+        if depth <= 0 {
+            return Color::new(0.0, 0.0, 0.0);
+        }
+
+        let mut rec = crate::hittable::HitRecord::default();
+
+        if world.hit(r, Interval::new(0.001, INFINITY), &mut rec) {
+            // let direction = random_on_hemisphere(&rec.normal);
+            // let direction = rec.normal + random_unit_vector();
+            // 0.5 * self.ray_color(&Ray::with_origin_dir(rec.p, direction), depth - 1, world)
+            let mut scattered = Ray::new();
+            let mut attenuation = Color::default();
+            if rec
+                .mat
+                .as_ref()
+                .and_then(|mat| Some(mat.scatter(r, &rec, &mut attenuation, &mut scattered)))
+                .unwrap_or(false)
+            {
+                return attenuation * self.ray_color(&scattered, depth - 1, world);
+            }
+
+            Color::default()
+        } else {
+            let unit_direction = unit_vector(*r.direction());
+            let a = 0.5 * (unit_direction.y() + 1.0);
+            (1.0 - a) * Color::new(1.0, 1.0, 1.0) + a * Color::new(0.5, 0.7, 1.0)
+        }
+    }
+}

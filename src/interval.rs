@@ -1,0 +1,67 @@
+use std::f64;
+
+/// 表示一个实数区间 [min, max]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Interval {
+    pub min: f64,
+    pub max: f64,
+}
+
+impl Interval {
+    /// 创建一个空区间 [+∞, -∞]
+    pub fn new_empty() -> Self {
+        Self {
+            min: f64::INFINITY,
+            max: f64::NEG_INFINITY,
+        }
+    }
+
+    /// 创建一个包含整个实数域的区间 [-∞, +∞]
+    pub fn new_universe() -> Self {
+        Self {
+            min: f64::NEG_INFINITY,
+            max: f64::INFINITY,
+        }
+    }
+
+    /// 创建一个指定上下界的区间
+    pub fn new(min: f64, max: f64) -> Self {
+        Self { min, max }
+    }
+
+    /// 计算区间的大小（长度）
+    pub fn size(&self) -> f64 {
+        self.max - self.min
+    }
+
+    /// 判断值是否在区间内（包括边界）
+    pub fn contains(&self, x: f64) -> bool {
+        self.min <= x && x <= self.max
+    }
+
+    /// 判断值是否在区间内（不包括边界）
+    pub fn surrounds(&self, x: f64) -> bool {
+        self.min < x && x < self.max
+    }
+
+    pub fn clamp(&self, x: f64) -> f64 {
+        if x < self.min {
+            return self.min;
+        }
+        if x > self.max {
+            return self.max;
+        }
+        return x;
+    }
+}
+
+// 静态常量定义
+pub const EMPTY: Interval = Interval {
+    min: f64::INFINITY,
+    max: f64::NEG_INFINITY,
+};
+
+pub const UNIVERSE: Interval = Interval {
+    min: f64::NEG_INFINITY,
+    max: f64::INFINITY,
+};
