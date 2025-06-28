@@ -2,8 +2,8 @@ use crate::color::{Color, write_color};
 use crate::hittable::Hittable;
 use crate::interval::Interval;
 use crate::ray::Ray;
-use crate::rtweekend::{INFINITY, random_double};
-use crate::vec3::{Point3, Vec3, unit_vector};
+use crate::rtweekend::{INFINITY, degrees_to_radians, random_double};
+use crate::vec3::{Point3, Vec3, cross, random_in_unit_disk, unit_vector};
 use std::io::{self, Write};
 
 #[derive(Clone)]
@@ -14,6 +14,12 @@ pub struct Camera {
     pub image_width: i32,
     pub samples_per_pixel: i32, // count of random samples for each pixel
     pub max_depth: i32,         // Maximum number of ray bounces into scene
+    pub vfov: f64,              // Vertical view angle (field of view)
+    pub lookfrom: Point3,       // Point camera is looking from
+    pub lookat: Point3,         // Point camera is looking at
+    pub vup: Vec3,              // Camera-relative "up" direction
+    pub defocus_angle: f64,     // Variation angle of rays through each pixel
+    pub focus_dist: f64,        // Distance from camera lookfrom point to plane of perfect focus
 
     // 私有成员
     image_height: i32,
@@ -22,6 +28,11 @@ pub struct Camera {
     pixel00_loc: Point3,
     pixel_delta_u: Vec3,
     pixel_delta_v: Vec3,
+    u: Vec3,
+    v: Vec3,
+    w: Vec3,
+    defocus_disk_u: Vec3, // Defocus disk horizontal radius
+    defocus_disk_v: Vec3, // Defocus disk vertical radius
 }
 
 impl Camera {
@@ -32,12 +43,23 @@ impl Camera {
             image_width: 100,
             samples_per_pixel: 10,
             max_depth: 10,
+            vfov: 90.0,
+            lookfrom: Point3::new(0.0, 0.0, 0.0),
+            lookat: Point3::new(0.0, 0.0, -1.0),
+            vup: Point3::new(0.0, 1.0, 0.0),
+            defocus_angle: 0.0,
+            focus_dist: 10.0,
             image_height: 0,
             pixel_samples_scale: 0.0,
             center: Point3::default(),
             pixel00_loc: Point3::default(),
             pixel_delta_u: Vec3::default(),
             pixel_delta_v: Vec3::default(),
+            u: Vec3::default(),
+            v: Vec3::default(),
+            w: Vec3::default(),
+            defocus_disk_u: Vec3::default(),
+            defocus_disk_v: Vec3::default(),
         }
     }
 
@@ -88,25 +110,38 @@ impl Camera {
         self.pixel_samples_scale = 1.0 / (self.samples_per_pixel as f64);
 
         // 设置相机中心
-        self.center = Point3::new(0.0, 0.0, 0.0); // (0,0,0)
+        self.center = self.lookfrom;
 
         // 计算视口尺寸
-        let focal_length = 1.0;
-        let viewport_height = 2.0;
+        // let focal_length = (self.lookfrom - self.lookat).length();
+        let theta = degrees_to_radians(self.vfov);
+        let h = (theta / 2.0).tan();
+        // let viewport_height = 2.0 * h * focal_length;
+        let viewport_height = 2.0 * h * self.focus_dist;
         let viewport_width = viewport_height * (self.image_width as f64 / self.image_height as f64);
 
+        self.w = unit_vector(self.lookfrom - self.lookat);
+        self.u = unit_vector(cross(&self.vup, &self.w));
+        self.v = cross(&self.w, &self.u);
+
         // 计算视口边缘向量
-        let viewport_u = Vec3::new(viewport_width, 0.0, 0.0);
-        let viewport_v = Vec3::new(0.0, -viewport_height, 0.0);
+        let viewport_u = viewport_width * self.u;
+        let viewport_v = -viewport_height * self.v;
 
         // 计算像素间的增量向量
         self.pixel_delta_u = viewport_u / (self.image_width as f64);
         self.pixel_delta_v = viewport_v / (self.image_height as f64);
 
         // 计算视口左上角位置
+        // let viewport_upper_left =
+        //     self.center - (focal_length * self.w) - viewport_u / 2.0 - viewport_v / 2.0;
         let viewport_upper_left =
-            self.center - Vec3::new(0.0, 0.0, focal_length) - viewport_u / 2.0 - viewport_v / 2.0;
+            self.center - (self.focus_dist * self.w) - viewport_u / 2.0 - viewport_v / 2.0;
         self.pixel00_loc = viewport_upper_left + 0.5 * (self.pixel_delta_u + self.pixel_delta_v);
+
+        let defocus_radius = self.focus_dist * (degrees_to_radians(self.defocus_angle / 2.0).tan());
+        self.defocus_disk_u = self.u * defocus_radius;
+        self.defocus_disk_v = self.v * defocus_radius;
     }
 
     fn get_ray(&self, i: i32, j: i32) -> Ray {
@@ -117,7 +152,12 @@ impl Camera {
             + ((j as f64 + offset.y()) * self.pixel_delta_v);
 
         // 构建射线
-        let ray_origin = self.center;
+        // let ray_origin = self.center;
+        let ray_origin = if self.defocus_angle <= 0.0 {
+            self.center
+        } else {
+            self.defocus_disk_sample()
+        };
         let ray_direction = pixel_sample - ray_origin;
 
         Ray::with_origin_dir(ray_origin, ray_direction)
@@ -126,6 +166,11 @@ impl Camera {
     fn sample_square(&self) -> Vec3 {
         // Returns the vector to a random point in the [-.5,-.5]-[+.5,+.5] unit square.
         Vec3::new(random_double() - 0.5, random_double() - 0.5, 0.0)
+    }
+
+    fn defocus_disk_sample(&self) -> Point3 {
+        let p = random_in_unit_disk();
+        self.center + (p.x() * self.defocus_disk_u) + (p.y() * self.defocus_disk_v)
     }
 
     /// 计算射线与场景交互后的颜色
