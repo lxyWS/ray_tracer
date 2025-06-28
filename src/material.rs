@@ -2,6 +2,7 @@ use crate::{
     color::Color,
     hittable::HitRecord,
     ray::Ray,
+    rtweekend::random_double,
     vec3::{dot, random_unit_vector, reflect, refract, unit_vector},
 };
 use std::sync::Arc;
@@ -90,7 +91,15 @@ pub struct Dielectric {
 
 impl Dielectric {
     pub fn new(refraction_index: f64) -> Self {
-        Self { refraction_index }
+        Self {
+            refraction_index: refraction_index,
+        }
+    }
+
+    // 施莱克近似
+    fn reflectance(cosine: f64, ref_idx: f64) -> f64 {
+        let r0 = ((1.0 - ref_idx) / (1.0 + ref_idx)).powi(2);
+        r0 + (1.0 - r0) * (1.0 - cosine).powi(5)
     }
 }
 
@@ -116,7 +125,7 @@ impl Material for Dielectric {
         let sin_theta = (1.0 - cos_theta * cos_theta).sqrt();
 
         let cannot_refract = ri * sin_theta > 1.0;
-        let direction = if cannot_refract {
+        let direction = if cannot_refract || Self::reflectance(cos_theta, ri) > random_double() {
             reflect(&unit_direction, &rec.normal)
         } else {
             refract(&unit_direction, &rec.normal, ri)
