@@ -63,8 +63,8 @@ impl Hittable for Sphere {
         rec.mat = Some(self.mat.clone());
 
         // 计算法向量（从球心指向交点，已归一化）
-        let outward_normal = (rec.p - self.center) / self.radius;
-        rec.normal = outward_normal;
+        // let outward_normal = (rec.p - self.center) / self.radius;
+        // rec.normal = outward_normal;
 
         true
     }
