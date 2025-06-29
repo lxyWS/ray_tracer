@@ -1,5 +1,7 @@
+use std::fmt::Debug;
 use std::ops::Neg;
 
+use crate::aabb::Aabb;
 use crate::interval::Interval;
 use crate::material::MaterialPtr;
 use crate::ray::Ray;
@@ -41,4 +43,5 @@ pub trait Hittable {
     /// - 若击中返回true，否则返回false
     // fn hit(&self, r: &Ray, ray_tmin: f64, ray_tmax: f64, rec: &mut HitRecord) -> bool;
     fn hit(&self, r: &Ray, ray_t: Interval, rec: &mut HitRecord) -> bool;
+    fn bounding_box(&self) -> Aabb;
 }
