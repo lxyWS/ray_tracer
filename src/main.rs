@@ -1,3 +1,5 @@
+pub mod aabb;
+pub mod bvh;
 pub mod camera;
 pub mod color;
 pub mod hittable;
@@ -9,14 +11,15 @@ pub mod rtweekend;
 pub mod sphere;
 pub mod vec3;
 
+use crate::bvh::BvhNode;
 use crate::camera::Camera;
 use crate::color::Color;
 use crate::hittable_list::HittableList;
 use crate::material::{Dielectric, Lambertian, Material, Metal};
-use crate::rtweekend::{PI, random_double, random_double_range};
+use crate::rtweekend::{random_double, random_double_range};
 use crate::sphere::Sphere;
 use crate::vec3::{Point3, Vec3};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Instant;
 
 fn for_output13() {
@@ -102,15 +105,23 @@ fn last_picture_the_first_book() {
                 if choose_mat < 0.8 {
                     let albedo = Color::random() * Color::random();
                     sphere_material = Arc::new(Lambertian::new(albedo));
+                    let center2 = center + Vec3::new(0.0, random_double_range(0.0, 0.5), 0.0);
+                    world.add(Arc::new(Sphere::new_moving(
+                        center,
+                        center2,
+                        0.2,
+                        sphere_material,
+                    )));
+                    // world.add(Arc::new(Sphere::new(center, 0.2, sphere_material)));
                 } else if choose_mat < 0.95 {
                     let albedo = Color::random_range(0.5, 1.0);
                     let fuzz = random_double_range(0.0, 0.5);
                     sphere_material = Arc::new(Metal::new(albedo, fuzz));
+                    world.add(Arc::new(Sphere::new(center, 0.2, sphere_material)));
                 } else {
                     sphere_material = Arc::new(Dielectric::new(1.5));
+                    world.add(Arc::new(Sphere::new(center, 0.2, sphere_material)));
                 }
-
-                world.add(Arc::new(Sphere::new(center, 0.2, sphere_material)));
             }
         }
     }
@@ -136,10 +147,16 @@ fn last_picture_the_first_book() {
         material3,
     )));
 
+    let bvh_node = BvhNode::new(&world);
+    let mut world_bvh = HittableList::new();
+    world_bvh.add(bvh_node);
+
     let mut cam = Camera::new();
     cam.aspect_ratio = 16.0 / 9.0;
-    cam.image_width = 1200;
-    cam.samples_per_pixel = 500;
+    // cam.image_width = 1200; // 加上运动效果之前
+    // cam.samples_per_pixel = 500; // 加上运动效果之前
+    cam.image_width = 400; // 加上运动效果之后
+    cam.samples_per_pixel = 100; // 加上运动效果之后
     cam.max_depth = 50;
 
     cam.vfov = 20.0;
@@ -150,7 +167,8 @@ fn last_picture_the_first_book() {
     cam.defocus_angle = 0.6;
     cam.focus_dist = 10.0;
 
-    cam.render(&world);
+    // cam.render(&world);
+    cam.render(&world_bvh);
 }
 
 fn main() {
