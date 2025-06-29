@@ -8,6 +8,17 @@ pub struct Interval {
 }
 
 impl Interval {
+    // 静态常量定义
+    pub const EMPTY: Interval = Interval {
+        min: f64::INFINITY,
+        max: f64::NEG_INFINITY,
+    };
+
+    pub const UNIVERSE: Interval = Interval {
+        min: f64::NEG_INFINITY,
+        max: f64::INFINITY,
+    };
+
     /// 创建一个空区间 [+∞, -∞]
     pub fn new_empty() -> Self {
         Self {
@@ -27,6 +38,13 @@ impl Interval {
     /// 创建一个指定上下界的区间
     pub fn new(min: f64, max: f64) -> Self {
         Self { min, max }
+    }
+
+    pub fn from_intervals(a: &Interval, b: &Interval) -> Self {
+        Self {
+            min: a.min.min(b.min),
+            max: a.max.max(b.max),
+        }
     }
 
     /// 计算区间的大小（长度）
@@ -53,15 +71,12 @@ impl Interval {
         }
         return x;
     }
+
+    pub fn expand(&self, delta: f64) -> Self {
+        let padding = delta / 2.0;
+        Self {
+            min: self.min - padding,
+            max: self.max + padding,
+        }
+    }
 }
-
-// 静态常量定义
-pub const EMPTY: Interval = Interval {
-    min: f64::INFINITY,
-    max: f64::NEG_INFINITY,
-};
-
-pub const UNIVERSE: Interval = Interval {
-    min: f64::NEG_INFINITY,
-    max: f64::INFINITY,
-};
