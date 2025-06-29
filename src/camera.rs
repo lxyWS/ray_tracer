@@ -1,10 +1,12 @@
-use crate::color::{Color, write_color};
+use crate::color::{Color, write_color_to_string};
 use crate::hittable::Hittable;
 use crate::interval::Interval;
 use crate::ray::Ray;
 use crate::rtweekend::{INFINITY, degrees_to_radians, random_double};
 use crate::vec3::{Point3, Vec3, cross, random_in_unit_disk, unit_vector};
+use rayon::prelude::*;
 use std::io::{self, Write};
+use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
 /// 相机类，负责生成射线并渲染场景
@@ -64,33 +66,77 @@ impl Camera {
     }
 
     /// 渲染给定场景
-    pub fn render(&self, world: &impl Hittable) {
+    pub fn render(&self, world: &(impl Hittable + Sync)) {
         let mut camera = self.clone();
         camera.initialize();
 
         println!("P3\n{} {}\n255", camera.image_width, camera.image_height);
 
-        // 逐像素渲染
-        for j in 0..camera.image_height {
-            // 显示进度
-            eprint!("\rScanlines remaining: {}", camera.image_height - j);
-            io::stderr().flush().unwrap();
+        // // 逐像素渲染
+        // for j in 0..camera.image_height {
+        //     // 显示进度
+        //     eprint!("\rScanlines remaining: {}", camera.image_height - j);
+        //     io::stderr().flush().unwrap();
 
-            for i in 0..camera.image_width {
+        //     for i in 0..camera.image_width {
+        //         let mut pixel_color = Color::new(0.0, 0.0, 0.0);
+
+        //         // 对每个像素多次采样
+        //         for _ in 0..camera.samples_per_pixel {
+        //             let r = camera.get_ray(i, j);
+        //             // pixel_color += self.ray_color(&r, world);
+        //             pixel_color += self.ray_color(&r, self.max_depth, world);
+        //         }
+
+        //         write_color(
+        //             &mut io::stdout(),
+        //             &(camera.pixel_samples_scale * pixel_color),
+        //         );
+        //     }
+        // }
+
+        let camera_arc = Arc::new(camera);
+
+        // 收集输出的互斥锁
+        let outputs: Mutex<Vec<String>> =
+            Mutex::new(vec![String::new(); camera_arc.image_height as usize]);
+        let progress_counter = Arc::new(Mutex::new(0));
+
+        let world_arc = Arc::new(world);
+
+        // 每个线程处理图像的一行
+        (0..camera_arc.image_height).into_par_iter().for_each(|j| {
+            let mut line_output = String::new();
+
+            for i in 0..camera_arc.image_width {
                 let mut pixel_color = Color::new(0.0, 0.0, 0.0);
 
-                // 对每个像素多次采样
-                for _ in 0..camera.samples_per_pixel {
-                    let r = camera.get_ray(i, j);
-                    // pixel_color += self.ray_color(&r, world);
-                    pixel_color += self.ray_color(&r, self.max_depth, world);
+                for _ in 0..camera_arc.samples_per_pixel {
+                    let r = camera_arc.get_ray(i, j);
+                    pixel_color += camera_arc.ray_color(&r, camera_arc.max_depth, *world_arc);
                 }
 
-                write_color(
-                    &mut io::stdout(),
-                    &(camera.pixel_samples_scale * pixel_color),
-                );
+                let color_str =
+                    write_color_to_string(&(camera_arc.pixel_samples_scale * pixel_color));
+                line_output.push_str(&color_str);
             }
+
+            // 更新进度
+            let mut progress = progress_counter.lock().unwrap();
+            *progress += 1;
+            eprint!(
+                "\r渲染进度: {:.1}%",
+                (*progress) as f64 / camera_arc.image_height as f64 * 100.0
+            );
+            io::stderr().flush().unwrap();
+
+            let mut outputs = outputs.lock().unwrap();
+            outputs[j as usize] = line_output;
+        });
+
+        let outputs = outputs.into_inner().unwrap();
+        for output in outputs {
+            print!("{}", output);
         }
 
         eprint!("\rDone.                 \n");
@@ -159,8 +205,9 @@ impl Camera {
             self.defocus_disk_sample()
         };
         let ray_direction = pixel_sample - ray_origin;
+        let ray_time = random_double();
 
-        Ray::with_origin_dir(ray_origin, ray_direction)
+        Ray::with_origin_dir_time(ray_origin, ray_direction, ray_time)
     }
 
     fn sample_square(&self) -> Vec3 {
