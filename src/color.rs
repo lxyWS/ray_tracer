@@ -39,3 +39,28 @@ pub fn write_color<W: std::io::Write>(out: &mut W, pixel_color: &Color) {
     // 写入像素颜色分量
     writeln!(out, "{} {} {}", rbyte, gbyte, bbyte).unwrap();
 }
+
+/// 返回颜色像素值的字符串
+pub fn write_color_to_string(pixel_color: &Color) -> String {
+    let r = pixel_color.x();
+    let g = pixel_color.y();
+    let b = pixel_color.z();
+
+    let r = linear_to_gamma(r);
+    let g = linear_to_gamma(g);
+    let b = linear_to_gamma(b);
+
+    // 将[0,1]范围转换为[0,255]字节范围
+    let intensity = Interval::new(0.000, 0.999);
+    let r_clamped = intensity.clamp(r);
+    let g_clamped = intensity.clamp(g);
+    let b_clamped = intensity.clamp(b);
+
+    // 将[0,1)范围映射到[0,255]的整数
+    let rbyte = (256.0 * r_clamped) as i32;
+    let gbyte = (256.0 * g_clamped) as i32;
+    let bbyte = (256.0 * b_clamped) as i32;
+
+    // 返回格式化的字符串
+    format!("{} {} {}\n", rbyte, gbyte, bbyte)
+}
