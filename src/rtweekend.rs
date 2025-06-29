@@ -21,6 +21,10 @@ pub fn random_double_range(min: f64, max: f64) -> f64 {
     rand::thread_rng().gen_range(min..max)
 }
 
+pub fn random_int(min: i32, max: i32) -> i32 {
+    random_double_range(min as f64, (max + 1) as f64) as i32
+}
+
 // 类型别名
 pub type SharedPtr<T> = Arc<T>;
 pub use self::SharedPtr as make_shared;
