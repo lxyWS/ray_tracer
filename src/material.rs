@@ -44,7 +44,7 @@ impl Material for Lambertian {
         } else {
             scatter_direction
         };
-        *scattered = Ray::with_origin_dir(rec.p, scatter_direction);
+        *scattered = Ray::with_origin_dir_time(rec.p, scatter_direction, r_in.time());
         *attenuation = self.albedo;
         true
     }
@@ -76,7 +76,7 @@ impl Material for Metal {
         let mut reflected = reflect(r_in.direction(), &rec.normal);
         reflected = unit_vector(reflected) + self.fuzz * random_unit_vector();
 
-        *scattered = Ray::with_origin_dir(rec.p, reflected);
+        *scattered = Ray::with_origin_dir_time(rec.p, reflected, r_in.time());
         *attenuation = self.albedo;
 
         dot(scattered.direction(), &rec.normal) > 0.0
@@ -131,9 +131,9 @@ impl Material for Dielectric {
             refract(&unit_direction, &rec.normal, ri)
         };
         // let refracted = refract(&unit_direction, &rec.normal, ri);
-        *scattered = Ray::with_origin_dir(rec.p, direction);
+        *scattered = Ray::with_origin_dir_time(rec.p, direction, r_in.time());
         true
     }
 }
 
-pub type MaterialPtr = Arc<dyn Material>; // Material trait 的智能指针类型
+pub type MaterialPtr = Arc<dyn Material + Send + Sync>; // Material trait 的智能指针类型
