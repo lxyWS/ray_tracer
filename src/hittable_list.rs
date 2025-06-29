@@ -1,3 +1,4 @@
+use crate::aabb::Aabb;
 use crate::hittable::{HitRecord, Hittable};
 use crate::interval::Interval;
 use crate::ray::Ray;
@@ -5,7 +6,8 @@ use std::sync::Arc;
 
 /// 可被射线击中的物体列表
 pub struct HittableList {
-    objects: Vec<Arc<dyn Hittable>>,
+    pub objects: Vec<Arc<dyn Hittable + Send + Sync>>,
+    bbox: Aabb,
 }
 
 impl HittableList {
@@ -13,11 +15,12 @@ impl HittableList {
     pub fn new() -> Self {
         Self {
             objects: Vec::new(),
+            bbox: Aabb::new_empty(),
         }
     }
 
     /// 用单个物体创建列表
-    pub fn with_object(object: Arc<dyn Hittable>) -> Self {
+    pub fn with_object(object: Arc<dyn Hittable + Send + Sync>) -> Self {
         let mut list = Self::new();
         list.add(object);
         list
@@ -29,8 +32,9 @@ impl HittableList {
     }
 
     /// 向列表中添加一个物体
-    pub fn add(&mut self, object: Arc<dyn Hittable>) {
-        self.objects.push(object);
+    pub fn add(&mut self, object: Arc<dyn Hittable + Send + Sync>) {
+        self.objects.push(object.clone());
+        self.bbox = Aabb::from_aabbs(self.bbox, object.bounding_box());
     }
 }
 
@@ -53,4 +57,19 @@ impl Hittable for HittableList {
 
         hit_anything
     }
+
+    fn bounding_box(&self) -> Aabb {
+        self.bbox
+    }
 }
+
+// impl Debug for HittableList {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         f.debug_struct("HittableList")
+//             .field("object_count", &self.objects.len())
+//             .field("bbox", &self.bbox)
+//             .finish()
+//     }
+// }
+
+unsafe impl Sync for HittableList {}
