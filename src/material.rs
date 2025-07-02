@@ -3,7 +3,8 @@ use crate::{
     hittable::HitRecord,
     ray::Ray,
     rtweekend::random_double,
-    vec3::{dot, random_unit_vector, reflect, refract, unit_vector},
+    texture::{SolidColor, Texture},
+    vec3::{Point3, dot, random_unit_vector, reflect, refract, unit_vector},
 };
 use std::sync::Arc;
 
@@ -15,17 +16,28 @@ pub trait Material: Send + Sync + std::fmt::Debug {
         attenuation: &mut Color, // 材质吸收后的剩余光线能量
         scattered: &mut Ray,     // 散射后的光线
     ) -> bool;
+
+    fn emitted(&self, _u: f64, _v: f64, _p: &Point3) -> Color {
+        Color::new(0.0, 0.0, 0.0)
+    }
 }
 
 #[derive(Debug)]
 pub struct Lambertian {
     // 朗伯表面
-    albedo: Color,
+    // albedo: Color,
+    tex: Arc<dyn Texture + Send + Sync>,
 }
 
 impl Lambertian {
     pub fn new(albedo: Color) -> Self {
-        Self { albedo }
+        Self {
+            tex: Arc::new(SolidColor::new(albedo)),
+        }
+    }
+
+    pub fn from_texture(texture: Arc<dyn Texture + Send + Sync>) -> Self {
+        Self { tex: texture }
     }
 }
 
@@ -45,7 +57,8 @@ impl Material for Lambertian {
             scatter_direction
         };
         *scattered = Ray::with_origin_dir_time(rec.p, scatter_direction, r_in.time());
-        *attenuation = self.albedo;
+        // *attenuation = self.albedo;
+        *attenuation = self.tex.value(rec.u, rec.v, &rec.p);
         true
     }
 }
@@ -136,4 +149,68 @@ impl Material for Dielectric {
     }
 }
 
+#[derive(Debug)]
+pub struct DiffuseLight {
+    tex: Arc<dyn Texture + Send + Sync>,
+}
+
+impl DiffuseLight {
+    pub fn new(tex: Arc<dyn Texture + Send + Sync>) -> Self {
+        Self { tex }
+    }
+
+    pub fn from_color(emit: Color) -> Self {
+        Self {
+            tex: Arc::new(SolidColor::new(emit)),
+        }
+    }
+}
+
+impl Material for DiffuseLight {
+    fn scatter(
+        &self,
+        _r_in: &Ray,
+        _rec: &HitRecord,
+        _attenuation: &mut Color, // 材质吸收后的剩余光线能量
+        _scattered: &mut Ray,     // 散射后的光线
+    ) -> bool {
+        false
+    }
+
+    fn emitted(&self, u: f64, v: f64, p: &Point3) -> Color {
+        self.tex.value(u, v, p)
+    }
+}
+
 pub type MaterialPtr = Arc<dyn Material + Send + Sync>; // Material trait 的智能指针类型
+
+#[derive(Debug)]
+pub struct Isotropic {
+    tex: Arc<dyn Texture + Send + Sync>,
+}
+
+impl Isotropic {
+    pub fn new(tex: Arc<dyn Texture + Send + Sync>) -> Self {
+        Self { tex }
+    }
+
+    pub fn from_color(albedo: Color) -> Self {
+        Self {
+            tex: Arc::new(SolidColor::new(albedo)),
+        }
+    }
+}
+
+impl Material for Isotropic {
+    fn scatter(
+        &self,
+        r_in: &Ray,
+        rec: &HitRecord,
+        attenuation: &mut Color, // 材质吸收后的剩余光线能量
+        scattered: &mut Ray,     // 散射后的光线
+    ) -> bool {
+        *scattered = Ray::with_origin_dir_time(rec.p, random_unit_vector(), r_in.time());
+        *attenuation = self.tex.value(rec.u, rec.v, &rec.p);
+        true
+    }
+}
