@@ -1,5 +1,10 @@
-use crate::{interval::Interval, ray::Ray, vec3::Point3};
+use crate::{
+    interval::Interval,
+    ray::Ray,
+    vec3::{Point3, Vec3},
+};
 use std::fmt::Debug;
+use std::ops::Add;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Aabb {
@@ -30,7 +35,9 @@ impl Aabb {
     }
 
     pub fn from_intervals(x: Interval, y: Interval, z: Interval) -> Self {
-        Self { x, y, z }
+        let mut aabb = Self { x, y, z };
+        aabb.pad_to_minimums();
+        aabb
     }
 
     pub fn from_points(a: Point3, b: Point3) -> Self {
@@ -49,7 +56,10 @@ impl Aabb {
         } else {
             Interval::new(b.z(), a.z())
         };
-        Self { x, y, z }
+
+        let mut aabb = Self { x, y, z };
+        aabb.pad_to_minimums();
+        aabb
     }
 
     pub fn from_aabbs(box0: Aabb, box1: Aabb) -> Self {
@@ -104,12 +114,49 @@ impl Aabb {
                 return 2;
             }
         } else {
-            if (self.y.size() > self.z.size()) {
+            if self.y.size() > self.z.size() {
                 return 1;
             } else {
                 return 2;
             }
         }
+    }
+
+    fn pad_to_minimums(&mut self) {
+        let delta = 0.0001;
+        if self.x.size() < delta {
+            self.x = self.x.expand(delta)
+        };
+        if self.y.size() < delta {
+            self.y = self.y.expand(delta)
+        };
+        if self.z.size() < delta {
+            self.z = self.z.expand(delta)
+        };
+    }
+
+    pub fn add_offset(&self, offset: Vec3) -> Self {
+        Self {
+            x: self.x + offset.x(),
+            y: self.y + offset.y(),
+            z: self.z + offset.z(),
+        }
+    }
+}
+
+impl Add<Vec3> for Aabb {
+    type Output = Self;
+
+    fn add(self, offset: Vec3) -> Self::Output {
+        self.add_offset(offset)
+    }
+}
+
+impl Add<Aabb> for Vec3 {
+    type Output = Aabb;
+
+    fn add(self, bbox: Aabb) -> Self::Output {
+        bbox.add_offset(self)
     }
 }
 
