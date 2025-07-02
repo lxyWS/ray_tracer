@@ -16,12 +16,13 @@ pub struct Camera {
     pub image_width: i32,
     pub samples_per_pixel: i32, // count of random samples for each pixel
     pub max_depth: i32,         // Maximum number of ray bounces into scene
-    pub vfov: f64,              // Vertical view angle (field of view)
-    pub lookfrom: Point3,       // Point camera is looking from
-    pub lookat: Point3,         // Point camera is looking at
-    pub vup: Vec3,              // Camera-relative "up" direction
-    pub defocus_angle: f64,     // Variation angle of rays through each pixel
-    pub focus_dist: f64,        // Distance from camera lookfrom point to plane of perfect focus
+    pub background: Color,
+    pub vfov: f64,          // Vertical view angle (field of view)
+    pub lookfrom: Point3,   // Point camera is looking from
+    pub lookat: Point3,     // Point camera is looking at
+    pub vup: Vec3,          // Camera-relative "up" direction
+    pub defocus_angle: f64, // Variation angle of rays through each pixel
+    pub focus_dist: f64,    // Distance from camera lookfrom point to plane of perfect focus
 
     // 私有成员
     image_height: i32,
@@ -45,6 +46,7 @@ impl Camera {
             image_width: 100,
             samples_per_pixel: 10,
             max_depth: 10,
+            background: Color::new(0.0, 0.0, 0.0), // 默认黑色背景
             vfov: 90.0,
             lookfrom: Point3::new(0.0, 0.0, 0.0),
             lookat: Point3::new(0.0, 0.0, -1.0),
@@ -228,26 +230,48 @@ impl Camera {
 
         let mut rec = crate::hittable::HitRecord::default();
 
-        if world.hit(r, Interval::new(0.001, INFINITY), &mut rec) {
-            // let direction = random_on_hemisphere(&rec.normal);
-            // let direction = rec.normal + random_unit_vector();
-            // 0.5 * self.ray_color(&Ray::with_origin_dir(rec.p, direction), depth - 1, world)
-            let mut scattered = Ray::new();
-            let mut attenuation = Color::default();
-            if rec
-                .mat
-                .as_ref()
-                .and_then(|mat| Some(mat.scatter(r, &rec, &mut attenuation, &mut scattered)))
-                .unwrap_or(false)
-            {
-                return attenuation * self.ray_color(&scattered, depth - 1, world);
-            }
+        // if world.hit(r, Interval::new(0.001, INFINITY), &mut rec) {
+        //     // let direction = random_on_hemisphere(&rec.normal);
+        //     // let direction = rec.normal + random_unit_vector();
+        //     // 0.5 * self.ray_color(&Ray::with_origin_dir(rec.p, direction), depth - 1, world)
+        //     let mut scattered = Ray::new();
+        //     let mut attenuation = Color::default();
+        //     if rec
+        //         .mat
+        //         .as_ref()
+        //         .and_then(|mat| Some(mat.scatter(r, &rec, &mut attenuation, &mut scattered)))
+        //         .unwrap_or(false)
+        //     {
+        //         return attenuation * self.ray_color(&scattered, depth - 1, world);
+        //     }
 
-            Color::default()
-        } else {
-            let unit_direction = unit_vector(*r.direction());
-            let a = 0.5 * (unit_direction.y() + 1.0);
-            (1.0 - a) * Color::new(1.0, 1.0, 1.0) + a * Color::new(0.5, 0.7, 1.0)
+        //     Color::default()
+        // } else {
+        //     let unit_direction = unit_vector(*r.direction());
+        //     let a = 0.5 * (unit_direction.y() + 1.0);
+        //     (1.0 - a) * Color::new(1.0, 1.0, 1.0) + a * Color::new(0.5, 0.7, 1.0)
+        // }
+
+        if !world.hit(r, Interval::new(0.001, INFINITY), &mut rec) {
+            return self.background;
         }
+
+        let color_from_emission = rec
+            .mat
+            .as_ref()
+            .map_or(Color::default(), |mat| mat.emitted(rec.u, rec.v, &rec.p));
+
+        let mut scattered = Ray::new();
+        let mut attenuation = Color::default();
+
+        if rec.mat.as_ref().map_or(true, |mat| {
+            !mat.scatter(r, &rec, &mut attenuation, &mut scattered)
+        }) {
+            return color_from_emission;
+        }
+
+        let color_from_scatter = attenuation * self.ray_color(&scattered, depth - 1, world);
+
+        color_from_emission + color_from_scatter
     }
 }
