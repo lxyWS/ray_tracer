@@ -1,4 +1,4 @@
-use std::f64;
+use std::{f64, ops::Add};
 
 /// 表示一个实数区间 [min, max]
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -78,5 +78,28 @@ impl Interval {
             min: self.min - padding,
             max: self.max + padding,
         }
+    }
+
+    pub fn add_dispplacement(&self, displacement: f64) -> Self {
+        Self {
+            min: self.min + displacement,
+            max: self.max + displacement,
+        }
+    }
+}
+
+impl Add<f64> for Interval {
+    type Output = Self;
+
+    fn add(self, displacement: f64) -> Self::Output {
+        self.add_dispplacement(displacement)
+    }
+}
+
+impl Add<Interval> for f64 {
+    type Output = Interval;
+
+    fn add(self, interval: Interval) -> Self::Output {
+        interval.add_dispplacement(self)
     }
 }
