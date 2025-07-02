@@ -3,6 +3,7 @@ use crate::hittable::{HitRecord, Hittable};
 use crate::interval::Interval;
 use crate::material::MaterialPtr;
 use crate::ray::Ray;
+use crate::rtweekend::PI;
 use crate::vec3::{Point3, Vec3, dot};
 
 /// 表示三维空间中的球体
@@ -39,6 +40,16 @@ impl Sphere {
             mat: mat,
             bbox: Aabb::from_aabbs(box1, box2),
         }
+    }
+
+    pub fn get_sphere_uv(p: &Point3) -> (f64, f64) {
+        let theta = (-p.y()).acos();
+        let phi = (-p.z()).atan2(p.x()) + PI;
+
+        let u = phi / (2.0 * PI);
+        let v = theta / PI;
+
+        (u, v)
     }
 }
 
@@ -77,6 +88,9 @@ impl Hittable for Sphere {
         rec.p = r.at(rec.t);
         let outward_normal = (rec.p - current_center) / self.radius;
         rec.set_face_normal(r, outward_normal);
+        let (u, v) = Sphere::get_sphere_uv(&outward_normal);
+        rec.u = u;
+        rec.v = v;
         rec.mat = Some(self.mat.clone());
 
         // 计算法向量（从球心指向交点，已归一化）
