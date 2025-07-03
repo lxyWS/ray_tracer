@@ -74,29 +74,6 @@ impl Camera {
 
         println!("P3\n{} {}\n255", camera.image_width, camera.image_height);
 
-        // // 逐像素渲染
-        // for j in 0..camera.image_height {
-        //     // 显示进度
-        //     eprint!("\rScanlines remaining: {}", camera.image_height - j);
-        //     io::stderr().flush().unwrap();
-
-        //     for i in 0..camera.image_width {
-        //         let mut pixel_color = Color::new(0.0, 0.0, 0.0);
-
-        //         // 对每个像素多次采样
-        //         for _ in 0..camera.samples_per_pixel {
-        //             let r = camera.get_ray(i, j);
-        //             // pixel_color += self.ray_color(&r, world);
-        //             pixel_color += self.ray_color(&r, self.max_depth, world);
-        //         }
-
-        //         write_color(
-        //             &mut io::stdout(),
-        //             &(camera.pixel_samples_scale * pixel_color),
-        //         );
-        //     }
-        // }
-
         let camera_arc = Arc::new(camera);
 
         // 收集输出的互斥锁
@@ -230,28 +207,6 @@ impl Camera {
 
         let mut rec = crate::hittable::HitRecord::default();
 
-        // if world.hit(r, Interval::new(0.001, INFINITY), &mut rec) {
-        //     // let direction = random_on_hemisphere(&rec.normal);
-        //     // let direction = rec.normal + random_unit_vector();
-        //     // 0.5 * self.ray_color(&Ray::with_origin_dir(rec.p, direction), depth - 1, world)
-        //     let mut scattered = Ray::new();
-        //     let mut attenuation = Color::default();
-        //     if rec
-        //         .mat
-        //         .as_ref()
-        //         .and_then(|mat| Some(mat.scatter(r, &rec, &mut attenuation, &mut scattered)))
-        //         .unwrap_or(false)
-        //     {
-        //         return attenuation * self.ray_color(&scattered, depth - 1, world);
-        //     }
-
-        //     Color::default()
-        // } else {
-        //     let unit_direction = unit_vector(*r.direction());
-        //     let a = 0.5 * (unit_direction.y() + 1.0);
-        //     (1.0 - a) * Color::new(1.0, 1.0, 1.0) + a * Color::new(0.5, 0.7, 1.0)
-        // }
-
         if !world.hit(r, Interval::new(0.001, INFINITY), &mut rec) {
             return self.background;
         }
@@ -267,6 +222,17 @@ impl Camera {
         if rec.mat.as_ref().map_or(true, |mat| {
             !mat.scatter(r, &rec, &mut attenuation, &mut scattered)
         }) {
+            return color_from_emission;
+        }
+
+        // 计算继续追踪的概率,取RGB分量的最大值，并限制在[0.1, 1.0]范围内
+        let p = attenuation
+            .x()
+            .max(attenuation.y())
+            .max(attenuation.z())
+            .clamp(0.1, 1.0);
+
+        if random_double() >= p {
             return color_from_emission;
         }
 
