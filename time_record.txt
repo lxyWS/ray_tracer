@@ -1,0 +1,24 @@
+output13.ppm  51.26s    5.13s
+output14&15&17.ppm   155min    1046.82s   429.98s(bvh优化)  (第一本书 final scene) 
+运动球 output16.ppm   33.37s  9.29s(bvh优化)
+Spheres on the checkered ground(18)   9.07s 
+Checkered Spheres(19)   5.74s
+Earth-mapped Sphere(20)   1.69s
+Hashed random texture(21)   3.46s
+Perlin texture with trilinear interpolation(22)   4.07s
+Perlin texture, trilinearly interpolated, smoothed(23)   4.05s
+Perlin texture, higher frequency(24)    4.07s
+Perlin texture, shifted off integer values(25)   4.00s
+Perlin texture with turbulence(26)    8.07s
+Perlin noise, marbled texture(27)    8.14s
+Quads(28)    4.10s
+Scene with rectangle light source(29)   4.44s
+Scene with rectangle and sphere light sources(30)   4.56s
+Empty Cornell box(31)   69.87s
+Cornell box with two blocks(32)   110.50s
+Standard Cornell box scene(33)   115.03s
+Cornell box with blocks of smoke(34)    135.37s
+Final scene--simple(35)    39.09s
+Final scene(36)   11756.48s
+Final scene--RR优化(37)   2793.49s
+Final scene--RR优化(38)   2945.97s
