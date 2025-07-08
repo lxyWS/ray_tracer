@@ -34,7 +34,7 @@ impl HitRecord {
 }
 
 /// 可被射线击中的物体的trait
-pub trait Hittable {
+pub trait Hittable: Debug {
     /// 判断射线是否击中物体
     ///
     /// # 参数
@@ -48,9 +48,16 @@ pub trait Hittable {
     // fn hit(&self, r: &Ray, ray_tmin: f64, ray_tmax: f64, rec: &mut HitRecord) -> bool;
     fn hit(&self, r: &Ray, ray_t: Interval, rec: &mut HitRecord) -> bool;
     fn bounding_box(&self) -> Aabb;
+    fn pdf_value(&self, _origin: &Point3, _direction: &Vec3) -> f64 {
+        0.0
+    }
+    fn random(&self, _origin: &Point3) -> Vec3 {
+        Vec3::new(1.0, 0.0, 0.0)
+    }
 }
 
 // 平移变换的物体
+#[derive(Debug)]
 pub struct Translate {
     object: Arc<dyn Hittable + Send + Sync>,
     offset: Vec3,
@@ -86,6 +93,7 @@ impl Hittable for Translate {
     }
 }
 
+#[derive(Debug)]
 pub struct RotateY {
     object: Arc<dyn Hittable + Send + Sync>,
     sin_theta: f64,
