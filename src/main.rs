@@ -7,6 +7,10 @@ pub mod hittable;
 pub mod hittable_list;
 pub mod interval;
 pub mod material;
+pub mod mesh;
+pub mod obj_loader;
+pub mod onb;
+pub mod pdf;
 pub mod perlin;
 pub mod quad;
 pub mod ray;
@@ -14,6 +18,7 @@ pub mod rtw_stb_image;
 pub mod rtweekend;
 pub mod sphere;
 pub mod texture;
+pub mod triangle;
 pub mod vec3;
 
 use crate::bvh::BvhNode;
@@ -22,11 +27,14 @@ use crate::color::Color;
 use crate::hittable::{Hittable, RotateY, Translate};
 use crate::hittable_list::HittableList;
 use crate::material::{Dielectric, DiffuseLight, Lambertian, Material, Metal};
+use crate::mesh::Mesh;
 use crate::quad::{Quad, box_new};
 use crate::rtweekend::{random_double, random_double_range};
 use crate::sphere::Sphere;
-use crate::texture::{CheckerTexture, NoiseTexture};
+use crate::texture::{CheckerTexture, NoiseTexture, SolidColor};
+use crate::triangle::Triangle;
 use crate::vec3::{Point3, Vec3};
+use obj_loader::ObjModel;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -85,7 +93,7 @@ fn for_output13() {
     cam.defocus_angle = 10.0;
     cam.focus_dist = 3.4;
 
-    cam.render(&world);
+    // cam.render(&world);
 }
 
 fn last_picture_the_first_book() {
@@ -190,7 +198,7 @@ fn last_picture_the_first_book() {
     cam.focus_dist = 10.0;
 
     // cam.render(&world);
-    cam.render(&world_bvh);
+    // cam.render(&world_bvh);
 }
 
 fn checkered_spheres() {
@@ -230,7 +238,7 @@ fn checkered_spheres() {
 
     cam.defocus_angle = 0.0;
 
-    cam.render(&world);
+    // cam.render(&world);
 }
 
 fn earth() {
@@ -256,7 +264,7 @@ fn earth() {
 
     cam.defocus_angle = 0.0;
 
-    cam.render(&world);
+    // cam.render(&world);
 }
 
 fn perlin_spheres() {
@@ -291,7 +299,7 @@ fn perlin_spheres() {
 
     cam.defocus_angle = 0.0;
 
-    cam.render(&world);
+    // cam.render(&world);
 }
 
 fn quads() {
@@ -334,6 +342,10 @@ fn quads() {
         lower_teal,
     )));
 
+    let bvh_node = BvhNode::new(&world);
+    let mut world_bvh = HittableList::new();
+    world_bvh.add(bvh_node);
+
     let mut cam = Camera::new();
 
     cam.aspect_ratio = 1.0;
@@ -349,7 +361,8 @@ fn quads() {
 
     cam.defocus_angle = 0.0;
 
-    cam.render(&world);
+    //cam.render(&world);
+    // cam.render(&world_bvh);
 }
 
 fn simple_light() {
@@ -402,7 +415,7 @@ fn simple_light() {
 
     cam.defocus_angle = 0.0;
 
-    cam.render(&world);
+    // cam.render(&world);
 }
 
 fn cornell_box() {
@@ -426,13 +439,6 @@ fn cornell_box() {
         Vec3::new(0.0, 0.0, 555.0),
         red,
     )));
-    // 光源（天花板上的灯）
-    world.add(Arc::new(Quad::new(
-        Point3::new(343.0, 554.0, 332.0),
-        Vec3::new(-130.0, 0.0, 0.0),
-        Vec3::new(0.0, 0.0, -105.0),
-        light,
-    )));
     // 地板（白色）
     world.add(Arc::new(Quad::new(
         Point3::new(0.0, 0.0, 0.0),
@@ -454,18 +460,22 @@ fn cornell_box() {
         Vec3::new(0.0, 555.0, 0.0),
         white.clone(),
     )));
+    // 光源（天花板上的灯）
+    world.add(Arc::new(Quad::new(
+        Point3::new(343.0, 554.0, 332.0),
+        Vec3::new(-130.0, 0.0, 0.0),
+        Vec3::new(0.0, 0.0, -105.0),
+        light.clone(),
+    )));
 
-    // world.add(box_new(
-    //     Point3::new(130.0, 0.0, 65.0),
-    //     Point3::new(295.0, 165.0, 230.0),
-    //     white.clone(),
-    // ));
-    // world.add(box_new(
-    //     Point3::new(265.0, 0.0, 295.0),
-    //     Point3::new(430.0, 330.0, 460.0),
-    //     white,
-    // ));
+    // let aluminum = Arc::new(Metal::new(Color::new(0.80, 0.85, 0.88), 0.0));
+    // let mut box1: Arc<dyn Hittable + Send + Sync> = box_new(
+    //     Point3::new(0.0, 0.0, 0.0),
+    //     Point3::new(165.0, 330.0, 165.0),
+    //     aluminum,
+    // );
 
+    // // 修改前
     let mut box1: Arc<dyn Hittable + Send + Sync> = box_new(
         Point3::new(0.0, 0.0, 0.0),
         Point3::new(165.0, 330.0, 165.0),
@@ -475,20 +485,56 @@ fn cornell_box() {
     box1 = Arc::new(Translate::new(box1, Vec3::new(265.0, 0.0, 295.0)));
     world.add(box1);
 
-    let mut box2: Arc<dyn Hittable + Send + Sync> = box_new(
-        Point3::new(0.0, 0.0, 0.0),
-        Point3::new(165.0, 165.0, 165.0),
-        white.clone(),
-    );
-    box2 = Arc::new(RotateY::new(box2, -18.0));
-    box2 = Arc::new(Translate::new(box2, Vec3::new(130.0, 0.0, 65.0)));
-    world.add(box2);
+    let glass = Arc::new(Dielectric::new(1.5));
+    world.add(Arc::new(Sphere::new(
+        Point3::new(190.0, 90.0, 190.0),
+        90.0,
+        glass,
+    )));
+
+    // let mut box2: Arc<dyn Hittable + Send + Sync> = box_new(
+    //     Point3::new(0.0, 0.0, 0.0),
+    //     Point3::new(165.0, 165.0, 165.0),
+    //     white.clone(),
+    // );
+    // box2 = Arc::new(RotateY::new(box2, -18.0));
+    // box2 = Arc::new(Translate::new(box2, Vec3::new(130.0, 0.0, 65.0)));
+    // world.add(box2);
+
+    // let empty_material = Arc::new(Material);
+    let empty_material = Arc::new(Lambertian::new(Color::new(0.73, 0.73, 0.73)));
+    // let empty_material = Arc::new(Lambertian::new(Color::new(0.0, 0.0, 0.0))); // 黑色材质，不发
+    let mut lights = HittableList::new();
+    lights.add(Arc::new(Quad::new(
+        Point3::new(343.0, 554.0, 332.0),
+        Vec3::new(-130.0, 0.0, 0.0),
+        Vec3::new(0.0, 0.0, -105.0),
+        empty_material.clone(),
+    )));
+    lights.add(Arc::new(Sphere::new(
+        Point3::new(190.0, 90.0, 190.0),
+        90.0,
+        empty_material,
+    )));
+
+    // let lights = Quad::new(
+    //     Point3::new(343.0, 554.0, 332.0),
+    //     Vec3::new(-130.0, 0.0, 0.0),
+    //     Vec3::new(0.0, 0.0, -105.0),
+    //     empty_material,
+    // );
+
+    // let bvh_node = BvhNode::new(&world);
+    // let mut world_bvh = HittableList::new();
+    // world_bvh.add(bvh_node);
 
     let mut cam = Camera::new();
 
     cam.aspect_ratio = 1.0;
     cam.image_width = 600;
-    cam.samples_per_pixel = 200;
+    // cam.samples_per_pixel = 200; // 2nd book
+    cam.samples_per_pixel = 1000; // 3rd book
+    // cam.samples_per_pixel = 10;
     cam.max_depth = 50;
     cam.background = Color::new(0.0, 0.0, 0.0); // 黑色背景
 
@@ -499,7 +545,9 @@ fn cornell_box() {
 
     cam.defocus_angle = 0.0;
 
-    cam.render(&world);
+    // cam.render(&world);
+    // cam.render(&world_bvh);
+    cam.render(Arc::new(world), Arc::new(lights));
 }
 
 fn cornell_smoke() {
@@ -578,6 +626,10 @@ fn cornell_smoke() {
     world.add(smoke1);
     world.add(smoke2);
 
+    let bvh_node = BvhNode::new(&world);
+    let mut world_bvh = HittableList::new();
+    world_bvh.add(bvh_node);
+
     let mut cam = Camera::new();
 
     cam.aspect_ratio = 1.0;
@@ -593,7 +645,7 @@ fn cornell_smoke() {
 
     cam.defocus_angle = 0.0;
 
-    cam.render(&world);
+    // cam.render(&world_bvh);
 }
 
 fn final_scene(image_width: usize, samples_per_pixel: usize, max_depth: usize) {
@@ -679,7 +731,7 @@ fn final_scene(image_width: usize, samples_per_pixel: usize, max_depth: usize) {
     ));
     world.add(medium2);
 
-    let earth_texture = Arc::new(texture::ImageTexture::new("earthmap.jpg"));
+    let earth_texture = Arc::new(texture::ImageTexture::new("grumble.jpg"));
     let earth_material = Arc::new(Lambertian::from_texture(earth_texture));
     world.add(Arc::new(Sphere::new(
         Point3::new(400.0, 200.0, 400.0),
@@ -696,13 +748,15 @@ fn final_scene(image_width: usize, samples_per_pixel: usize, max_depth: usize) {
     )));
 
     let mut boxes2 = HittableList::new();
-    let white = Arc::new(Lambertian::new(Color::new(0.73, 0.73, 0.73)));
+    // let white = Arc::new(Lambertian::new(Color::new(0.73, 0.73, 0.73)));
+    let grumble_texture = Arc::new(texture::ImageTexture::new("grumble.jpg"));
+    let grumble_material = Arc::new(Lambertian::from_texture(grumble_texture));
     let ns = 1000;
     for _ in 0..ns {
         boxes2.add(Arc::new(Sphere::new(
             Point3::random_range(0.0, 165.0),
             10.0,
-            white.clone(),
+            grumble_material.clone(),
         )));
     }
 
@@ -730,8 +784,116 @@ fn final_scene(image_width: usize, samples_per_pixel: usize, max_depth: usize) {
 
     cam.defocus_angle = 0.0;
 
-    cam.render(&world);
+    // cam.render(&world);
 }
+
+fn cornell_box_with_obj() {
+    let mut world = HittableList::new();
+
+    // 加载 OBJ 模型
+    let material = Arc::new(Metal::new(Color::new(0.8, 0.8, 0.9), 0.2));
+    let bunny = ObjModel::load(
+        "models/cottage_obj.obj", // 替换为你的OBJ文件路径
+        material,
+        1000.0,                           // 缩放
+        Point3::new(278.0, 100.0, 280.0), // 位置
+    )
+    .expect("Failed to load OBJ model");
+
+    world.add(Arc::new(bunny));
+
+    let mut cam = Camera::new();
+    cam.aspect_ratio = 16.0 / 9.0;
+    cam.image_width = 1200;
+    cam.samples_per_pixel = 500;
+    cam.max_depth = 50;
+    cam.background = Color::new(0.0, 0.0, 0.0); // 纯黑背景
+
+    // 调整相机参数聚焦模型
+    cam.vfov = 40.0;
+    cam.lookfrom = Point3::new(278.0, 200.0, -500.0); // 更近的观察距离
+    cam.lookat = Point3::new(278.0, 100.0, 280.0); // 对准模型中心
+    cam.vup = Point3::new(0.0, 1.0, 0.0);
+    cam.defocus_angle = 0.0;
+
+    // cam.render(&world);
+}
+
+fn test_mesh_rendering() {
+    println!("Starting mesh rendering test...");
+    let mut world = HittableList::new();
+
+    // 添加光源
+    let light_color = Arc::new(SolidColor::new(Color::new(15.0, 15.0, 15.0)));
+    let light = Arc::new(DiffuseLight::new(light_color));
+    world.add(Arc::new(Quad::new(
+        Point3::new(0.0, 2.0, 0.0),
+        Vec3::new(2.0, 0.0, 0.0),
+        Vec3::new(0.0, 0.0, 2.0),
+        light,
+    )));
+
+    // 使用更明显的材质
+    let material = Arc::new(Metal::new(Color::new(0.8, 0.8, 0.9), 0.2));
+
+    // 加载测试模型
+    println!("Loading OBJ model...");
+    let mesh =
+        Mesh::from_obj("models/test_triangle.obj", material).expect("Failed to load OBJ file");
+    world.add(Arc::new(mesh));
+
+    let mut cam = Camera::new();
+    cam.aspect_ratio = 1.0;
+    cam.image_width = 400;
+    cam.samples_per_pixel = 4;
+    cam.max_depth = 2;
+    cam.background = Color::new(0.0, 0.0, 0.0);
+
+    // 调整相机位置确保能看到三角形
+    cam.vfov = 40.0;
+    cam.lookfrom = Point3::new(0.0, 0.5, 2.0); // 更靠近三角形
+    cam.lookat = Point3::new(0.0, 0.0, 0.0); // 看向三角形中心
+    cam.vup = Point3::new(0.0, 1.0, 0.0);
+    cam.defocus_angle = 0.0;
+
+    println!("Rendering...");
+    // cam.render(&world);
+    println!("Rendering completed!");
+}
+
+fn test_triangle() {
+    let mut world = HittableList::new();
+    let red = Arc::new(Lambertian::new(Color::new(0.8, 0.2, 0.2)));
+    let triangle = Arc::new(Triangle::new(
+        Point3::new(-10.0, 0.0, -5.0),
+        Point3::new(10.0, 0.0, -5.0),
+        Point3::new(0.0, 10.0, -5.0),
+        red,
+    ));
+    world.add(triangle);
+
+    let blue = Arc::new(Lambertian::new(Color::new(0.2, 0.2, 1.0)));
+    world.add(Arc::new(Sphere::new(
+        Point3::new(0.0, 0.0, -20.0),
+        10.0,
+        blue,
+    )));
+
+    let mut cam = Camera::new();
+    cam.aspect_ratio = 1.0;
+    cam.image_width = 400;
+    cam.samples_per_pixel = 100;
+    cam.max_depth = 50;
+    cam.background = Color::new(0.7, 0.8, 1.0);
+    cam.vfov = 80.0;
+    cam.lookfrom = Point3::new(0.0, 0.0, 9.0);
+    cam.lookat = Point3::new(0.0, 0.0, 0.0);
+    cam.vup = Vec3::new(0.0, 1.0, 0.0);
+    cam.defocus_angle = 0.0;
+
+    // cam.render(&world);
+}
+
 fn main() {
     let start = Instant::now(); // 开始计时
 
@@ -742,10 +904,13 @@ fn main() {
     // perlin_spheres();
     // quads();
     // simple_light();
-    // cornell_box();
+    cornell_box();
     // cornell_smoke();
     // final_scene(400, 250, 4);
-    final_scene(800, 10000, 40);
+    // final_scene(800, 10000, 40);
+    // cornell_box_with_obj();
+    // test_mesh_rendering();
+    // test_triangle();
 
     let elapsed = start.elapsed();
     println!("\n渲染完成,用时: {:.2}秒", elapsed.as_secs_f64());
