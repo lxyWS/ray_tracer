@@ -1,6 +1,8 @@
 use crate::color::{Color, write_color_to_string};
 use crate::hittable::Hittable;
 use crate::interval::Interval;
+use crate::material::ScatterRecord;
+use crate::pdf::{CosinePdf, HittablePdf, MixturePdf, Pdf};
 use crate::ray::Ray;
 use crate::rtweekend::{INFINITY, degrees_to_radians, random_double};
 use crate::vec3::{Point3, Vec3, cross, random_in_unit_disk, unit_vector};
@@ -27,6 +29,8 @@ pub struct Camera {
     // 私有成员
     image_height: i32,
     pixel_samples_scale: f64, // 像素采样的缩放因子
+    sqrt_spp: i32,            // 样本数的平方根（分层采样时使用）
+    recip_sqrt_spp: f64,      //  1/sqrt_spp（分层采样时使用）
     center: Point3,
     pixel00_loc: Point3,
     pixel_delta_u: Vec3,
@@ -55,6 +59,8 @@ impl Camera {
             focus_dist: 10.0,
             image_height: 0,
             pixel_samples_scale: 0.0,
+            sqrt_spp: 0,
+            recip_sqrt_spp: 0.0,
             center: Point3::default(),
             pixel00_loc: Point3::default(),
             pixel_delta_u: Vec3::default(),
@@ -68,7 +74,12 @@ impl Camera {
     }
 
     /// 渲染给定场景
-    pub fn render(&self, world: &(impl Hittable + Sync)) {
+    // pub fn render(&self, world: &impl Hittable, lights: &impl Hittable) {
+    pub fn render(
+        &self,
+        world: Arc<dyn Hittable + Send + Sync>,
+        lights: Arc<dyn Hittable + Send + Sync>,
+    ) {
         let mut camera = self.clone();
         camera.initialize();
 
@@ -81,8 +92,9 @@ impl Camera {
             Mutex::new(vec![String::new(); camera_arc.image_height as usize]);
         let progress_counter = Arc::new(Mutex::new(0));
 
-        let world_arc = Arc::new(world);
-
+        // 修改前
+        // let world_arc = Arc::new(world);
+        // let lights_arc = Arc::new(lights);
         // 每个线程处理图像的一行
         (0..camera_arc.image_height).into_par_iter().for_each(|j| {
             let mut line_output = String::new();
@@ -90,9 +102,32 @@ impl Camera {
             for i in 0..camera_arc.image_width {
                 let mut pixel_color = Color::new(0.0, 0.0, 0.0);
 
-                for _ in 0..camera_arc.samples_per_pixel {
-                    let r = camera_arc.get_ray(i, j);
-                    pixel_color += camera_arc.ray_color(&r, camera_arc.max_depth, *world_arc);
+                // for _ in 0..camera_arc.samples_per_pixel {
+                //     let r = camera_arc.get_ray(i, j);
+                //     pixel_color += camera_arc.ray_color(&r, camera_arc.max_depth, *world_arc);
+                // }
+
+                for s_j in 0..camera_arc.sqrt_spp {
+                    for s_i in 0..camera_arc.sqrt_spp {
+                        let r = camera_arc.get_ray(i, j, s_i, s_j);
+                        // pixel_color += camera_arc.ray_color(&r, camera_arc.max_depth, &**world_arc);
+
+                        // 修改ray_color之前的代码
+                        // pixel_color += camera_arc.ray_color(
+                        //     &r,
+                        //     camera_arc.max_depth,
+                        //     &**world_arc,
+                        //     &**lights_arc,
+                        // )
+
+                        // 修改ray_color之后
+                        pixel_color += camera_arc.ray_color(
+                            &r,
+                            camera_arc.max_depth,
+                            Arc::clone(&world),
+                            Arc::clone(&lights),
+                        )
+                    }
                 }
 
                 let color_str =
@@ -132,16 +167,18 @@ impl Camera {
             self.image_height
         };
 
-        self.pixel_samples_scale = 1.0 / (self.samples_per_pixel as f64);
+        self.sqrt_spp = (self.samples_per_pixel as f64).sqrt() as i32;
+        self.pixel_samples_scale = 1.0 / ((self.sqrt_spp * self.sqrt_spp) as f64);
+        self.recip_sqrt_spp = 1.0 / (self.sqrt_spp as f64);
+
+        // self.pixel_samples_scale = 1.0 / (self.samples_per_pixel as f64);
 
         // 设置相机中心
         self.center = self.lookfrom;
 
         // 计算视口尺寸
-        // let focal_length = (self.lookfrom - self.lookat).length();
         let theta = degrees_to_radians(self.vfov);
         let h = (theta / 2.0).tan();
-        // let viewport_height = 2.0 * h * focal_length;
         let viewport_height = 2.0 * h * self.focus_dist;
         let viewport_width = viewport_height * (self.image_width as f64 / self.image_height as f64);
 
@@ -158,8 +195,6 @@ impl Camera {
         self.pixel_delta_v = viewport_v / (self.image_height as f64);
 
         // 计算视口左上角位置
-        // let viewport_upper_left =
-        //     self.center - (focal_length * self.w) - viewport_u / 2.0 - viewport_v / 2.0;
         let viewport_upper_left =
             self.center - (self.focus_dist * self.w) - viewport_u / 2.0 - viewport_v / 2.0;
         self.pixel00_loc = viewport_upper_left + 0.5 * (self.pixel_delta_u + self.pixel_delta_v);
@@ -169,15 +204,15 @@ impl Camera {
         self.defocus_disk_v = self.v * defocus_radius;
     }
 
-    fn get_ray(&self, i: i32, j: i32) -> Ray {
+    fn get_ray(&self, i: i32, j: i32, s_i: i32, s_j: i32) -> Ray {
         // 在像素区域内随机采样
-        let offset = self.sample_square();
+        let offset = self.sample_square_stratified(s_i, s_j);
+        // let offset = self.sample_square();
         let pixel_sample = self.pixel00_loc
             + ((i as f64 + offset.x()) * self.pixel_delta_u)
             + ((j as f64 + offset.y()) * self.pixel_delta_v);
 
         // 构建射线
-        // let ray_origin = self.center;
         let ray_origin = if self.defocus_angle <= 0.0 {
             self.center
         } else {
@@ -189,8 +224,13 @@ impl Camera {
         Ray::with_origin_dir_time(ray_origin, ray_direction, ray_time)
     }
 
+    fn sample_square_stratified(&self, s_i: i32, s_j: i32) -> Vec3 {
+        let px = ((s_i as f64 + random_double()) * self.recip_sqrt_spp) - 0.5;
+        let py = ((s_j as f64 + random_double()) * self.recip_sqrt_spp) - 0.5;
+        Vec3::new(px, py, 0.0)
+    }
+
     fn sample_square(&self) -> Vec3 {
-        // Returns the vector to a random point in the [-.5,-.5]-[+.5,+.5] unit square.
         Vec3::new(random_double() - 0.5, random_double() - 0.5, 0.0)
     }
 
@@ -200,7 +240,15 @@ impl Camera {
     }
 
     /// 计算射线与场景交互后的颜色
-    fn ray_color(&self, r: &Ray, depth: i32, world: &impl Hittable) -> Color {
+    fn ray_color(
+        &self,
+        r: &Ray,
+        depth: i32,
+        // world: &impl Hittable,
+        // lights: &impl Hittable,
+        world: Arc<dyn Hittable + Send + Sync>,
+        lights: Arc<dyn Hittable + Send + Sync>,
+    ) -> Color {
         if depth <= 0 {
             return Color::new(0.0, 0.0, 0.0);
         }
@@ -211,33 +259,171 @@ impl Camera {
             return self.background;
         }
 
-        let color_from_emission = rec
+        let mut srec = ScatterRecord::default();
+
+        let color_from_emission = rec.mat.as_ref().map_or(Color::default(), |mat| {
+            mat.emitted(r, &rec, rec.u, rec.v, &rec.p)
+        });
+
+        if rec
             .mat
             .as_ref()
-            .map_or(Color::default(), |mat| mat.emitted(rec.u, rec.v, &rec.p));
-
-        let mut scattered = Ray::new();
-        let mut attenuation = Color::default();
-
-        if rec.mat.as_ref().map_or(true, |mat| {
-            !mat.scatter(r, &rec, &mut attenuation, &mut scattered)
-        }) {
+            .map_or(false, |mat| !mat.scatter(r, &rec, &mut srec))
+        {
             return color_from_emission;
         }
 
-        // 计算继续追踪的概率,取RGB分量的最大值，并限制在[0.1, 1.0]范围内
-        let p = attenuation
-            .x()
-            .max(attenuation.y())
-            .max(attenuation.z())
-            .clamp(0.1, 1.0);
+        if srec.skip_pdf {
+            let scattered = srec.skip_pdf_ray.clone().unwrap();
+            let scattering_pdf = rec
+                .mat
+                .as_ref()
+                .map_or(0.0, |mat| mat.scattering_pdf(r, &rec, &scattered));
 
-        if random_double() >= p {
-            return color_from_emission;
+            let color_from_scatter = {
+                srec.attenuation
+                    * self.ray_color(
+                        &scattered,
+                        depth - 1,
+                        Arc::clone(&world),
+                        Arc::clone(&lights),
+                    )
+            };
+
+            // return color_from_emission + color_from_scatter;
+            return color_from_scatter;
         }
 
-        let color_from_scatter = attenuation * self.ray_color(&scattered, depth - 1, world);
+        let light_pdf = HittablePdf::new(Arc::clone(&lights), rec.p);
+        let light_pdf_arc = Arc::new(light_pdf);
+        let mat_pdf_arc = srec.pdf_ptr.clone().unwrap();
+        // let mat_pdf = srec.pdf_ptr.clone().unwrap();
+
+        let mixed_pdf = MixturePdf::new(light_pdf_arc, mat_pdf_arc);
+
+        let scattered_dir = mixed_pdf.generate();
+        let scattered = Ray::with_origin_dir_time(rec.p, scattered_dir, r.time());
+        let pdf_value = mixed_pdf.value(scattered.direction());
+
+        let scattering_pdf = rec
+            .mat
+            .as_ref()
+            .map_or(0.0, |mat| mat.scattering_pdf(r, &rec, &scattered));
+
+        // let color_from_scatter = if scattering_pdf > 1e-8 {
+        //     (srec.attenuation
+        //         * scattering_pdf
+        //         * self.ray_color(
+        //             &scattered,
+        //             depth - 1,
+        //             Arc::clone(&world),
+        //             Arc::clone(&lights),
+        //         ))
+        //         / pdf_value
+        // } else {
+        //     Color::new(0.0, 0.0, 0.0)
+        // };
+        let color_from_scatter = {
+            (srec.attenuation
+                * scattering_pdf
+                * self.ray_color(
+                    &scattered,
+                    depth - 1,
+                    Arc::clone(&world),
+                    Arc::clone(&lights),
+                ))
+                / pdf_value
+        };
 
         color_from_emission + color_from_scatter
+
+        // // let mut scattered = Ray::new();
+        // // let mut attenuation = Color::default();
+        // // let mut pdf_value = 0.0;
+
+        // if rec.mat.as_ref().map_or(true, |mat| {
+        //     !mat.scatter(r, &rec, &mut attenuation, &mut scattered, &mut pdf_value)
+        // }) {
+        //     return color_from_emission;
+        // }
+
+        // // let p0 = Arc::new(HittablePdf::new(lights, rec.p));
+        // // let p1 = Arc::new(CosinePdf::new(rec.normal));
+        // // let mixed_pdf = MixturePdf::new(p0, p1);
+        // let p0 = Box::new(HittablePdf::new(lights, rec.p));
+        // let p1 = Box::new(CosinePdf::new(rec.normal));
+        // let mixed_pdf = MixturePdf::new(p0, p1);
+
+        // scattered = Ray::with_origin_dir_time(rec.p, mixed_pdf.generate(), r.time());
+        // pdf_value = mixed_pdf.value(scattered.direction());
+
+        // // let light_pdf = HittablePdf::new(lights, rec.p);
+        // // scattered = Ray::with_origin_dir_time(rec.p, light_pdf.generate(), r.time());
+        // // pdf_value = light_pdf.value(scattered.direction());
+
+        // // // 光源上随机选点
+        // // let on_light = Point3::new(
+        // //     random_double_range(213.0, 343.0),
+        // //     554.0,
+        // //     random_double_range(227.0, 332.0),
+        // // );
+        // // let to_light = on_light - rec.p;
+        // // let distance_squared = to_light.length_squared();
+        // // let to_light_dir = unit_vector(to_light);
+
+        // // if dot(&to_light_dir, &rec.normal) < 0.0 {
+        // //     return color_from_emission;
+        // // }
+
+        // // let light_area = (343.0 - 213.0) * (332.0 - 227.0);
+        // // let light_cosine = to_light_dir.y().abs();
+
+        // // if light_cosine < 0.000001 {
+        // //     return color_from_emission;
+        // // }
+
+        // // pdf_value = distance_squared / (light_cosine * light_area);
+
+        // // scattered = Ray::with_origin_dir_time(rec.p, to_light_dir, r.time());
+
+        // // // cosine PDF
+        // // let surface_pdf = CosinePdf::new(rec.normal);
+        // // scattered = Ray::with_origin_dir_time(rec.p, surface_pdf.generate(), r.time());
+        // // pdf_value = surface_pdf.value(scattered.direction());
+
+        // let scattering_pdf = rec
+        //     .mat
+        //     .as_ref()
+        //     .map_or(0.0, |mat| mat.scattering_pdf(r, &rec, &scattered));
+
+        // // let scattering_pdf = rec
+        // //     .mat
+        // //     .as_ref()
+        // //     .map_or(0.0, |mat| mat.scattering_pdf(r, &rec, &scattered));
+
+        // // pdf_value = scattering_pdf;
+        // // let pdf_value = 1.0 / (2.0 * PI);
+
+        // // // RR终止策略
+        // // let p = attenuation
+        // //     .x()
+        // //     .max(attenuation.y())
+        // //     .max(attenuation.z())
+        // //     .clamp(0.1, 1.0);
+
+        // // if random_double() >= p {
+        // //     return color_from_emission;
+        // // }
+
+        // let color_from_scatter = if scattering_pdf > 1e-8 {
+        //     (attenuation * scattering_pdf * self.ray_color(&scattered, depth - 1, world, lights))
+        //         / pdf_value
+        // } else {
+        //     Color::new(0.0, 0.0, 0.0)
+        // };
+
+        // // let color_from_scatter = attenuation * self.ray_color(&scattered, depth - 1, world);
+
+        // color_from_emission + color_from_scatter
     }
 }
