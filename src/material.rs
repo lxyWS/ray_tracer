@@ -1,24 +1,57 @@
+use crate::pdf::Pdf;
 use crate::{
     color::Color,
     hittable::HitRecord,
+    onb::Onb,
+    pdf::{CosinePdf, SpherePdf},
     ray::Ray,
-    rtweekend::random_double,
+    rtweekend::{PI, random_double},
     texture::{SolidColor, Texture},
-    vec3::{Point3, dot, random_unit_vector, reflect, refract, unit_vector},
+    vec3::{
+        Point3, dot, random_cosine_direction, random_unit_vector, reflect, refract, unit_vector,
+    },
 };
+use std::fmt;
 use std::sync::Arc;
+
+#[derive(Default)]
+pub struct ScatterRecord {
+    pub attenuation: Color,
+    pub pdf_ptr: Option<Arc<dyn Pdf + Send + Sync>>,
+    pub skip_pdf: bool,
+    pub skip_pdf_ray: Option<Ray>,
+}
+
+impl fmt::Debug for ScatterRecord {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ScatterRecord")
+            .field("attenuation", &self.attenuation)
+            .field("pdf_ptr", &self.pdf_ptr.as_ref().map(|_| "Pdf"))
+            .field("skip_pdf", &self.skip_pdf)
+            .field("skip_pdf_ray", &self.skip_pdf_ray)
+            .finish()
+    }
+}
 
 pub trait Material: Send + Sync + std::fmt::Debug {
     fn scatter(
         &self,
-        r_in: &Ray,
-        rec: &HitRecord,
-        attenuation: &mut Color, // 材质吸收后的剩余光线能量
-        scattered: &mut Ray,     // 散射后的光线
-    ) -> bool;
+        _r_in: &Ray,
+        _rec: &HitRecord,
+        // _attenuation: &mut Color, // 材质吸收后的剩余光线能量
+        // _scattered: &mut Ray,     // 散射后的光线
+        // _pdf: &mut f64,
+        _srec: &mut ScatterRecord,
+    ) -> bool {
+        false
+    }
 
-    fn emitted(&self, _u: f64, _v: f64, _p: &Point3) -> Color {
+    fn emitted(&self, _r_in: &Ray, _rec: &HitRecord, _u: f64, _v: f64, _p: &Point3) -> Color {
         Color::new(0.0, 0.0, 0.0)
+    }
+
+    fn scattering_pdf(&self, _r_in: &Ray, _rec: &HitRecord, _scattered: &Ray) -> f64 {
+        0.0
     }
 }
 
@@ -44,22 +77,43 @@ impl Lambertian {
 impl Material for Lambertian {
     fn scatter(
         &self,
-        r_in: &Ray,
+        _r_in: &Ray,
         rec: &HitRecord,
-        attenuation: &mut Color, // 材质吸收后的剩余光线能量
-        scattered: &mut Ray,     // 散射后的光线
+        // attenuation: &mut Color, // 材质吸收后的剩余光线能量
+        // scattered: &mut Ray,     // 散射后的光线
+        // pdf: &mut f64,
+        srec: &mut ScatterRecord,
     ) -> bool {
-        let scatter_direction = rec.normal + random_unit_vector(); // 散射方向
+        // let scatter_direction = rec.normal + random_unit_vector(); // 散射方向
+        // let scatter_direction = random_on_hemisphere(&rec.normal);
 
-        let scatter_direction = if scatter_direction.near_zero() {
-            rec.normal
-        } else {
-            scatter_direction
-        };
-        *scattered = Ray::with_origin_dir_time(rec.p, scatter_direction, r_in.time());
-        // *attenuation = self.albedo;
-        *attenuation = self.tex.value(rec.u, rec.v, &rec.p);
+        // let scatter_direction = if scatter_direction.near_zero() {
+        //     rec.normal
+        // } else {
+        //     scatter_direction
+        // };
+        // *scattered = Ray::with_origin_dir_time(rec.p, scatter_direction, r_in.time());
+
+        // let uvw = Onb::new(rec.normal);
+        // let scatter_direction = uvw.transform(random_cosine_direction());
+
+        // *scattered = Ray::with_origin_dir_time(rec.p, unit_vector(scatter_direction), r_in.time());
+        // *attenuation = self.tex.value(rec.u, rec.v, &rec.p);
+        // *pdf = dot(uvw.w(), scattered.direction()) / PI;
+
+        srec.attenuation = self.tex.value(rec.u, rec.v, &rec.p);
+        srec.pdf_ptr = Some(Arc::new(CosinePdf::new(rec.normal)));
+        srec.skip_pdf = false;
         true
+    }
+
+    fn scattering_pdf(&self, _r_in: &Ray, rec: &HitRecord, scattered: &Ray) -> f64 {
+        // let cos_theta = dot(&rec.normal, &unit_vector(*scattered.direction()));
+        // if cos_theta < 0.0 { 0.0 } else { cos_theta / PI }
+        // 1.0 / (2.0 * PI)
+
+        let cos_theta = dot(&rec.normal, &unit_vector(*scattered.direction()));
+        if cos_theta < 0.0 { 0.0 } else { cos_theta / PI }
     }
 }
 
@@ -83,16 +137,24 @@ impl Material for Metal {
         &self,
         r_in: &Ray,
         rec: &HitRecord,
-        attenuation: &mut Color, // 材质吸收后的剩余光线能量
-        scattered: &mut Ray,     // 散射后的光线
+        // attenuation: &mut Color, // 材质吸收后的剩余光线能量
+        // scattered: &mut Ray,     // 散射后的光线
+        // _pdf: &mut f64,
+        srec: &mut ScatterRecord,
     ) -> bool {
         let mut reflected = reflect(r_in.direction(), &rec.normal);
         reflected = unit_vector(reflected) + self.fuzz * random_unit_vector();
 
-        *scattered = Ray::with_origin_dir_time(rec.p, reflected, r_in.time());
-        *attenuation = self.albedo;
+        // *scattered = Ray::with_origin_dir_time(rec.p, reflected, r_in.time());
+        // *attenuation = self.albedo;
 
-        dot(scattered.direction(), &rec.normal) > 0.0
+        srec.attenuation = self.albedo;
+        srec.pdf_ptr = None;
+        srec.skip_pdf = true;
+        srec.skip_pdf_ray = Some(Ray::with_origin_dir_time(rec.p, reflected, r_in.time()));
+
+        // dot(scattered.direction(), &rec.normal) > 0.0
+        true
     }
 }
 
@@ -121,10 +183,15 @@ impl Material for Dielectric {
         &self,
         r_in: &Ray,
         rec: &HitRecord,
-        attenuation: &mut Color, // 材质吸收后的剩余光线能量
-        scattered: &mut Ray,     // 散射后的光线
+        // attenuation: &mut Color, // 材质吸收后的剩余光线能量
+        // scattered: &mut Ray,     // 散射后的光线
+        // _pdf: &mut f64,
+        srec: &mut ScatterRecord,
     ) -> bool {
-        *attenuation = Color::new(1.0, 1.0, 1.0);
+        // *attenuation = Color::new(1.0, 1.0, 1.0);
+        srec.attenuation = Color::new(1.0, 1.0, 1.0);
+        srec.pdf_ptr = None;
+        srec.skip_pdf = true;
 
         let ri = if rec.front_face {
             1.0 / self.refraction_index
@@ -144,7 +211,8 @@ impl Material for Dielectric {
             refract(&unit_direction, &rec.normal, ri)
         };
         // let refracted = refract(&unit_direction, &rec.normal, ri);
-        *scattered = Ray::with_origin_dir_time(rec.p, direction, r_in.time());
+        // *scattered = Ray::with_origin_dir_time(rec.p, direction, r_in.time());
+        srec.skip_pdf_ray = Some(Ray::with_origin_dir_time(rec.p, direction, r_in.time()));
         true
     }
 }
@@ -171,13 +239,19 @@ impl Material for DiffuseLight {
         &self,
         _r_in: &Ray,
         _rec: &HitRecord,
-        _attenuation: &mut Color, // 材质吸收后的剩余光线能量
-        _scattered: &mut Ray,     // 散射后的光线
+        // _attenuation: &mut Color, // 材质吸收后的剩余光线能量
+        // _scattered: &mut Ray,     // 散射后的光线
+        // _pdf: &mut f64,
+        _srec: &mut ScatterRecord,
     ) -> bool {
         false
     }
 
-    fn emitted(&self, u: f64, v: f64, p: &Point3) -> Color {
+    fn emitted(&self, _r_in: &Ray, rec: &HitRecord, u: f64, v: f64, p: &Point3) -> Color {
+        // self.tex.value(u, v, p)
+        if !rec.front_face {
+            return Color::new(0.0, 0.0, 0.0);
+        }
         self.tex.value(u, v, p)
     }
 }
@@ -204,13 +278,24 @@ impl Isotropic {
 impl Material for Isotropic {
     fn scatter(
         &self,
-        r_in: &Ray,
+        _r_in: &Ray,
         rec: &HitRecord,
-        attenuation: &mut Color, // 材质吸收后的剩余光线能量
-        scattered: &mut Ray,     // 散射后的光线
+        // attenuation: &mut Color, // 材质吸收后的剩余光线能量
+        // scattered: &mut Ray,     // 散射后的光线
+        // pdf: &mut f64,
+        srec: &mut ScatterRecord,
     ) -> bool {
-        *scattered = Ray::with_origin_dir_time(rec.p, random_unit_vector(), r_in.time());
-        *attenuation = self.tex.value(rec.u, rec.v, &rec.p);
+        // *scattered = Ray::with_origin_dir_time(rec.p, random_unit_vector(), r_in.time());
+        // *attenuation = self.tex.value(rec.u, rec.v, &rec.p);
+        // *pdf = 1.0 / (4.0 * PI);
+
+        srec.attenuation = self.tex.value(rec.u, rec.v, &rec.p);
+        srec.pdf_ptr = Some(Arc::new(SpherePdf::new()));
+        srec.skip_pdf = false;
         true
+    }
+
+    fn scattering_pdf(&self, _r_in: &Ray, _rec: &HitRecord, _scattered: &Ray) -> f64 {
+        1.0 / (4.0 * PI)
     }
 }
