@@ -124,10 +124,6 @@ impl NoiseTexture {
 
 impl Texture for NoiseTexture {
     fn value(&self, _u: f64, _v: f64, p: &Point3) -> Color {
-        // let scaled_p = *p * self.scale;
-        // let noise_value = self.noise.noise(&scaled_p);
-        // // Color::new(1.0, 1.0, 1.0) * noise_value
-        // Color::new(1.0, 1.0, 1.0) * 0.5 * (1.0 + noise_value)
         let noise_value = self.noise.turb(&*p, 7);
         Color::new(0.5, 0.5, 0.5) * (1.0 + (self.scale * p.z() + 10.0 * noise_value).sin())
     }
