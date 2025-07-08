@@ -10,6 +10,7 @@ use crate::{
     vec3::Vec3,
 };
 
+#[derive(Debug)]
 pub struct ConstantMedium {
     boundary: Arc<dyn Hittable + Send + Sync>,
     neg_inv_density: f64,
@@ -70,7 +71,7 @@ impl Hittable for ConstantMedium {
         } else {
             rec1.t
         };
-        let mut rec2_t = if rec2.t > ray_t.max {
+        let rec2_t = if rec2.t > ray_t.max {
             ray_t.max
         } else {
             rec2.t
