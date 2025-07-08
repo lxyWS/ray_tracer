@@ -17,13 +17,27 @@ pub fn linear_to_gamma(linear_component: f64) -> f64 {
 /// - `out`: 输出流引用
 /// - `pixel_color`: 颜色向量（[0,1]范围内的RGB值）
 pub fn write_color<W: std::io::Write>(out: &mut W, pixel_color: &Color) {
-    let r = pixel_color.x();
-    let g = pixel_color.y();
-    let b = pixel_color.z();
+    let mut r = pixel_color.x();
+    let mut g = pixel_color.y();
+    let mut b = pixel_color.z();
 
-    let r = linear_to_gamma(r);
-    let g = linear_to_gamma(g);
-    let b = linear_to_gamma(b);
+    if r.is_nan() {
+        r = 0.0;
+    }
+    if g.is_nan() {
+        g = 0.0;
+    }
+    if b.is_nan() {
+        b = 0.0;
+    }
+
+    // let r = linear_to_gamma(r);
+    // let g = linear_to_gamma(g);
+    // let b = linear_to_gamma(b);
+
+    r = linear_to_gamma(r);
+    g = linear_to_gamma(g);
+    b = linear_to_gamma(b);
 
     // 将[0,1]范围转换为[0,255]字节范围
     let intensity = Interval::new(0.000, 0.999);
