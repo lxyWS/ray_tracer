@@ -2,9 +2,11 @@ use crate::aabb::Aabb;
 use crate::hittable::{HitRecord, Hittable};
 use crate::interval::Interval;
 use crate::ray::Ray;
+use crate::rtweekend::random_int;
 use std::sync::Arc;
 
 /// 可被射线击中的物体列表
+#[derive(Debug)]
 pub struct HittableList {
     pub objects: Vec<Arc<dyn Hittable + Send + Sync>>,
     bbox: Aabb,
@@ -60,6 +62,22 @@ impl Hittable for HittableList {
 
     fn bounding_box(&self) -> Aabb {
         self.bbox
+    }
+
+    fn pdf_value(&self, origin: &crate::vec3::Point3, direction: &crate::vec3::Vec3) -> f64 {
+        let weight = 1.0 / self.objects.len() as f64;
+        let mut sum = 0.0;
+
+        for object in &self.objects {
+            sum += weight * object.pdf_value(origin, direction);
+        }
+
+        sum
+    }
+
+    fn random(&self, origin: &crate::vec3::Point3) -> crate::vec3::Vec3 {
+        let index = random_int(0, self.objects.len() as i32 - 1) as usize;
+        self.objects[index].random(origin)
     }
 }
 
