@@ -22,3 +22,17 @@ Final scene--simple(35)    39.09s
 Final scene(36)   11756.48s
 Final scene--RR优化(37)   2793.49s
 Final scene--RR优化(38)   2945.97s
+Cornell box, with stratification(39)   14.25s
+Cornell box, refactored(40)    72.75s
+Cornell box, with imperfect PDF(41)   206.69s
+Cornell box, with orthonormal basis scatter function(43)    205.50s
+Cornell box, sampling only the light, 10 samples per pixel(44)     0.52s
+Cornell box, light emitted only in the downward direction(45)    0.50s
+Cornell box with a cosine density PDF(46)    211.68s
+Cornell box, sampling a hittable light, 10 samples per pixel(47)    0.59s
+Cornell box, sampling a hittable light, 10 samples per pixel(48)    0.59s
+Cornell box, mixture density of cosine and light sampling(49)    2.40s
+Cornell box with arbitrary PDF functions(50)     144.74s
+Cornell box with glass sphere, using new PDF functions(51)    178.58s
+Cornell box using a mixture of glass & light PDFs(52)     334.51s
+Cornell box with anti-acne color function(53)    336.12s
